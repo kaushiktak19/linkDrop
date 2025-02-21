@@ -1,0 +1,60 @@
+# Node.js (Client + Server)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs
+logs
+*.log
+*.log.*
+
+# Dependency directories
+client/node_modules/
+server/node_modules/
+
+# Vite Build Output
+client/dist/
+
+# Env files (Secrets)
+client/.env
+server/.env
+
+# Cache and Temp Files
+client/.vite/
+server/.cache/
+*.tmp
+*.swp
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.prod.yml
+**/tmp/
+**/docker-data/
+**/docker-compose.yml
+
+# OS-Specific Files
+# macOS
+*.DS_Store
+.AppleDouble
+.LSOverride
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+# Linux
+*~
+
+# Debug Files
+*.stackdump
