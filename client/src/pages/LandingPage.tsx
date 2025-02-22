@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import  { v4 as uuidv4 } from "uuid";
 
 export default function LandingPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -12,6 +13,9 @@ export default function LandingPage() {
   const [password, setPassword] = useState("");
   const [channelId, setChannelId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const userId = localStorage.getItem('userId') || uuidv4();
+  localStorage.setItem('userId', userId);
 
   const navigate = useNavigate();
 
@@ -22,7 +26,7 @@ export default function LandingPage() {
     }
 
     try {
-      const response = await axios.post("/api/channel/create", { password });
+      const response = await axios.post("/api/channel/create", { password, userId });
       const { channelId } = response.data;
       navigate(`/channel/${channelId}`);
     } catch (error) {
@@ -46,6 +50,7 @@ export default function LandingPage() {
     } catch (error) {
       console.error("Error joining channel:", error);
       setErrorMessage("Invalid Channel ID or Password");
+      alert("Invalid Channel ID or Password")
     }
   };
 

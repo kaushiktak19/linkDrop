@@ -8,21 +8,29 @@ export default function ChannelPage() {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
   const [members, setMembers] = useState<number>(0);
+  //const [creatorId, setCreatorId] = useState<string>(""); 
   const [isCreator, setIsCreator] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchChannelDetails = async () => {
       try {
         const response = await axios.get(`/api/channel/${channelId}`);
-        setMembers(response.data.members);
-        setIsCreator(response.data.isCreator);
+        const updatedMembers = response.data.members;
+        if (updatedMembers !== members) {
+          setMembers(updatedMembers);
+        }
+        const currentUserId = localStorage.getItem('userId');
+        setIsCreator(currentUserId === response.data.creator);
       } catch (error) {
         console.error("Error fetching channel details:", error);
       }
     };
-
+  
     fetchChannelDetails();
-  }, [channelId]);
+    const interval = setInterval(fetchChannelDetails, 5000);
+    return () => clearInterval(interval);
+  }, [channelId, members]);
+   
 
   const handleLeave = async () => {
     await axios.post("/api/channel/leave", { channelId });

@@ -10,7 +10,7 @@ const redis = require('../config/redis');
  */
 router.post('/create', async (req, res) => {
     try {
-        const { password } = req.body;
+        const { password, userId } = req.body;
         const channelId = uuidv4();
         
         const newChannel = {
@@ -18,7 +18,7 @@ router.post('/create', async (req, res) => {
             password,
             members: 1,
             isActive: true,
-            creator: true,
+            creator: userId,
         };
 
         await redis.hset(`channel:${channelId}`, newChannel);
@@ -70,7 +70,7 @@ router.get('/:id', async (req, res) => {
         res.json({
             id: channel.id,
             members: parseInt(channel.members),
-            isCreator: channel.creator === 'true',
+            creator: channel.creator,
         });
     } catch (error) {
         console.error("Error getting channel:", error);
@@ -91,9 +91,9 @@ router.post('/terminate', async (req, res) => {
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        if (channel.creator !== 'true') {
-            return res.status(403).json({ error: 'Only the creator can terminate the channel' });
-        }
+        // if (channel.creator !== req.body.userId) {
+        //     return res.status(403).json({ error: 'Only the creator can terminate the channel' });
+        // }        
 
         await redis.del(`channel:${channelId}`);
         res.json({ success: true });
