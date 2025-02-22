@@ -1,13 +1,14 @@
-import './App.css'
+import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
+import LandingPage from "@/pages/LandingPage";
+import ChannelPage from "@/pages/ChannelPage";
 
-function App() {
-  
-
+export default function App() {
   return (
-    <>
-      <div className='bg-red-400'>hi</div>
-    </>
-  )
+    <Router>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/channel/:channelId" element={<ChannelPage />} />
+      </Routes>
+    </Router>
+  );
 }
-
-export default App

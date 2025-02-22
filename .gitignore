@@ -16,6 +16,9 @@ server/node_modules/
 # Vite Build Output
 client/dist/
 
+.env
+approach.txt
+
 # Env files (Secrets)
 client/.env
 server/.env
@@ -37,12 +40,12 @@ server/.cache/
 Thumbs.db
 
 # Docker
-docker-compose.override.yml
-docker-compose.local.yml
-docker-compose.prod.yml
-**/tmp/
-**/docker-data/
-**/docker-compose.yml
+# docker-compose.override.yml
+# docker-compose.local.yml
+# docker-compose.prod.yml
+# **/tmp/
+# **/docker-data/
+# **/docker-compose.yml
 
 # OS-Specific Files
 # macOS
