@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Copy, Users, XCircle } from "lucide-react";
+import { toast } from "sonner";
 import axios from "axios";
 
 interface QueuedFile {
@@ -25,28 +26,48 @@ export default function ChannelPage() {
       try {
         const response = await axios.get(`/api/channel/${channelId}`);
         const updatedMembers = response.data.members;
+  
+        if (!updatedMembers) {
+          toast("This channel has been terminated.");
+          navigate("/");
+          return;
+        }
+  
         if (updatedMembers !== members) {
           setMembers(updatedMembers);
         }
+  
         const currentUserId = localStorage.getItem("userId");
         setIsCreator(currentUserId === response.data.creator);
       } catch (error) {
         console.error("Error fetching channel details:", error);
+        toast(
+            "Failed to fetch channel details.",
+          );
       }
     };
-
+  
     fetchChannelDetails();
-    const interval = setInterval(fetchChannelDetails, 5000);
+    const interval = setInterval(() => {
+      fetchChannelDetails();
+    }, 5000);
+  
     return () => clearInterval(interval);
-  }, [channelId, members]);
-
+  }, [channelId, members, navigate]);
+  
   const handleLeave = async () => {
     await axios.post("/api/channel/leave", { channelId });
+    toast(
+      "You have successfully left the channel."
+    )
     navigate("/");
   };
-
+  
   const handleTerminate = async () => {
     await axios.post("/api/channel/terminate", { channelId });
+    toast(
+      "Channel terminated successfully."
+    );
     navigate("/");
   };
 

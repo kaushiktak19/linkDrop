@@ -6,13 +6,14 @@ import { Label } from "@/components/ui/label";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import  { v4 as uuidv4 } from "uuid";
+import { toast } from "sonner"
 
 export default function LandingPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [channelId, setChannelId] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  
 
   const userId = localStorage.getItem('userId') || uuidv4();
   localStorage.setItem('userId', userId);
@@ -21,36 +22,34 @@ export default function LandingPage() {
 
   const handleCreateChannel = async () => {
     if (!password) {
-      setErrorMessage("Please enter a password");
+      toast("Please enter a password to create a channel.");
       return;
     }
-
+  
     try {
       const response = await axios.post("/api/channel/create", { password, userId });
       const { channelId } = response.data;
+      toast("Channel created successfully.");
       navigate(`/channel/${channelId}`);
     } catch (error) {
       console.error("Error creating channel:", error);
-      setErrorMessage("Failed to create channel. Try again later.");
+      toast("Failed to create channel. Please try again later.");
     }
   };
-
+  
   const handleJoinChannel = async () => {
     if (!channelId || !password) {
-      setErrorMessage("Please enter both Channel ID and Password");
+      toast("Both Channel ID and Password are required.");
       return;
     }
-
+  
     try {
-      await axios.post("/api/channel/join", {
-        channelId,
-        password,
-      });
+      await axios.post("/api/channel/join", { channelId, password });
+      toast("Successfully joined the channel.");
       navigate(`/channel/${channelId}`);
     } catch (error) {
       console.error("Error joining channel:", error);
-      setErrorMessage("Invalid Channel ID or Password");
-      alert("Invalid Channel ID or Password")
+      toast("Invalid Channel ID or Password.");
     }
   };
 
@@ -61,8 +60,6 @@ export default function LandingPage() {
           <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl text-gray-900">linkDrop</h1>
           <p className="text-gray-500 md:text-lg">Secure P2P file sharing made simple. No registration required.</p>
         </div>
-
-        <div className="text-red-500">{errorMessage}</div>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
