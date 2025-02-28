@@ -1,63 +1,28 @@
-// // server/index.js
-// require('dotenv').config();
-// const express = require('express');
-// const cors = require('cors');
-// const channelRoutes = require('./routes/channel');
-
-// const app = express();
-// const PORT = process.env.PORT || 5000;
-
-// // Middleware
-// app.use(cors({
-//     origin: 'http://localhost:5173',
-// }));
-
-// app.use(express.json());
-
-// // Routes
-// app.use('/api/channel', channelRoutes);
-
-// // Health Check
-// app.get('/', (req, res) => {
-//     res.send('Server is running'); 
-// });
-
-// // Start Server
-// app.listen(PORT, () => {
-//     console.log(`Server running on http://localhost:${PORT}`);
-// });
-
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
+const { initializeSocket } = require("./socket");
+
 const app = express();
 const server = http.createServer(app);
-const { initializeSocket } = require("./socket");
-const io = initializeSocket(server) // Import socket initializer
-const channelRoutes = require("./routes/channel");
+const io = initializeSocket(server);
 
-
-
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Sample route to check if server is running
+// Health Check
 app.get("/", (req, res) => {
   res.send("Server is running...");
 });
 
-// Routes
-app.use("/api/channel", channelRoutes);
-
-// Start the server
+// Start Server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// Graceful shutdown
+// Graceful Shutdown
 process.on("SIGINT", () => {
   console.log("🛑 Shutting down server...");
   io.close(() => {
