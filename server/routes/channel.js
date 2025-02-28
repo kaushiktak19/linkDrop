@@ -1,8 +1,11 @@
-// server/routes/channel.js
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const redis = require('../config/redis');
+const { getIO } = require("../socket");
+const bcrypt = require("bcryptjs");
+
+const io = getIO();
 
 /**
  * @route POST /api/channel/create
@@ -11,17 +14,19 @@ const redis = require('../config/redis');
 router.post('/create', async (req, res) => {
     try {
         const { password, userId } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
         const channelId = uuidv4();
-        
+
         const newChannel = {
             id: channelId,
-            password,
-            members: 1,
-            isActive: true,
+            password: hashedPassword,
+            members: "1",  
+            isActive: "true",
             creator: userId,
         };
 
-        await redis.hset(`channel:${channelId}`, newChannel);
+        await redis.hmset(`channel:${channelId}`, newChannel);
+
         res.json({ channelId });
     } catch (error) {
         console.error("Error creating channel:", error);
@@ -37,16 +42,25 @@ router.post('/join', async (req, res) => {
     try {
         const { channelId, password } = req.body;
         const channel = await redis.hgetall(`channel:${channelId}`);
+        const isMatch = await bcrypt.compare(password, channel.password);
+        
+        if (!isMatch) return res.status(401).json({ error: "Invalid password" });
 
-        if (!channel || channel.password !== password) {
-            return res.status(401).json({ error: "Invalid Channel ID or Password" });
+        if (!channel || channel.isActive === "false") {
+            return res.status(404).json({ error: "Channel not found or inactive" });
         }
 
-        if (parseInt(channel.members) >= 2) {
-            return res.status(401).json({ error: "Channel is full" });
+        let members = parseInt(channel.members);
+        if (members >= 2) {
+            return res.status(403).json({ error: "Channel is full" });
         }
 
-        await redis.hincrby(`channel:${channelId}`, "members", 1);
+        members += 1;
+        await redis.hset(`channel:${channelId}`, "members", members.toString());
+
+        // Notify others about the new member
+        io.emit("channelUpdated", { channelId, members });
+
         res.json({ success: true });
     } catch (error) {
         console.error("Error joining channel:", error);
@@ -63,7 +77,7 @@ router.get('/:id', async (req, res) => {
         const { id } = req.params;
         const channel = await redis.hgetall(`channel:${id}`);
 
-        if (!channel || channel.isActive === 'false') {
+        if (!channel || channel.isActive === "false") {
             return res.status(404).json({ error: 'Channel not found' });
         }
 
@@ -84,18 +98,22 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/terminate', async (req, res) => {
     try {
-        const { channelId } = req.body;
+        const { channelId, userId } = req.body;
         const channel = await redis.hgetall(`channel:${channelId}`);
 
         if (!channel) {
             return res.status(404).json({ error: 'Channel not found' });
         }
-
-        // if (channel.creator !== req.body.userId) {
-        //     return res.status(403).json({ error: 'Only the creator can terminate the channel' });
-        // }        
+        
+        // if (channel.creator !== userId) {
+        //     return res.status(403).json({ error: "Only the creator can terminate the channel" });
+        // }
 
         await redis.del(`channel:${channelId}`);
+
+        // Emit termination event
+        io.emit("channelDeleted", { channelId });
+
         res.json({ success: true });
     } catch (error) {
         console.error("Error terminating channel:", error);
@@ -116,12 +134,15 @@ router.post('/leave', async (req, res) => {
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        const updatedMembers = parseInt(channel.members) - 1;
-        await redis.hset(`channel:${channelId}`, "members", updatedMembers);
-
+        let updatedMembers = parseInt(channel.members) - 1;
         if (updatedMembers <= 0) {
-            await redis.hset(`channel:${channelId}`, "isActive", false);
+            await redis.hset(`channel:${channelId}`, "isActive", "false");
+        } else {
+            await redis.hset(`channel:${channelId}`, "members", updatedMembers.toString());
         }
+
+        // Notify others
+        io.emit("userLeft", { channelId, members: updatedMembers });
 
         res.json({ success: true });
     } catch (error) {
