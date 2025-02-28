@@ -4,7 +4,16 @@ import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Copy, Users, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import axios from "axios";
+import socket from "@/lib/socket";
+
+// Define the response type for getChannel
+interface ChannelResponse {
+  success: boolean;
+  id?: string;
+  members?: number;
+  creator?: string;
+  error?: string;
+}
 
 interface QueuedFile {
   id: string;
@@ -22,52 +31,61 @@ export default function ChannelPage() {
   const [files, setFiles] = useState<QueuedFile[]>([]);
 
   useEffect(() => {
-    const fetchChannelDetails = async () => {
-      try {
-        const response = await axios.get(`/api/channel/${channelId}`);
-        const updatedMembers = response.data.members;
-  
-        if (!updatedMembers) {
-          toast("This channel has been terminated.");
+    if (!channelId) return;
+
+    // Fetch initial channel details
+    const fetchChannelDetails = () => {
+      socket.emit("getChannel", { channelId }, (response: ChannelResponse) => {
+        if (response.success) {
+          setMembers(response.members || 0);
+          const currentUserId = localStorage.getItem("userId");
+          setIsCreator(currentUserId === response.creator);
+        } else {
+          toast(response.error || "This channel has been terminated.");
           navigate("/");
-          return;
         }
-  
-        if (updatedMembers !== members) {
-          setMembers(updatedMembers);
-        }
-  
-        const currentUserId = localStorage.getItem("userId");
-        setIsCreator(currentUserId === response.data.creator);
-      } catch (error) {
-        console.error("Error fetching channel details:", error);
-        toast(
-            "Failed to fetch channel details.",
-          );
-      }
+      });
     };
-  
+
     fetchChannelDetails();
-    const interval = setInterval(() => {
-      fetchChannelDetails();
-    }, 5000);
-  
-    return () => clearInterval(interval);
-  }, [channelId, members, navigate]);
-  
-  const handleLeave = async () => {
-    await axios.post("/api/channel/leave", { channelId });
-    toast(
-      "You have successfully left the channel."
-    )
+
+    // Set up real-time listeners
+    socket.on("channelUpdated", (data: { channelId: string; members: number }) => {
+      if (data.channelId === channelId) {
+        setMembers(data.members);
+      }
+    });
+
+    socket.on("userLeft", (data: { channelId: string; members: number }) => {
+      if (data.channelId === channelId) {
+        setMembers(data.members);
+      }
+    });
+
+    socket.on("channelDeleted", (data: { channelId: string }) => {
+      if (data.channelId === channelId) {
+        toast("Channel terminated.");
+        navigate("/");
+      }
+    });
+
+    // Cleanup listeners when component unmounts
+    return () => {
+      socket.off("channelUpdated");
+      socket.off("userLeft");
+      socket.off("channelDeleted");
+    };
+  }, [channelId, navigate]);
+
+  const handleLeave = () => {
+    socket.emit("leaveChannel", { channelId });
+    toast("You have successfully left the channel.");
     navigate("/");
   };
-  
-  const handleTerminate = async () => {
-    await axios.post("/api/channel/terminate", { channelId });
-    toast(
-      "Channel terminated successfully."
-    );
+
+  const handleTerminate = () => {
+    socket.emit("terminateChannel", { channelId });
+    toast("Channel terminated successfully.");
     navigate("/");
   };
 
@@ -119,11 +137,7 @@ export default function ChannelPage() {
             </div>
           </div>
           {isCreator ? (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleTerminate}
-            >
+            <Button variant="destructive" size="sm" onClick={handleTerminate}>
               Terminate Channel
             </Button>
           ) : (

@@ -1,56 +1,69 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import  { v4 as uuidv4 } from "uuid";
-import { toast } from "sonner"
+import { v4 as uuidv4 } from "uuid";
+import { toast } from "sonner";
+import socket from "@/lib/socket";
+
+// Define response types
+interface ChannelActionResponse {
+  success: boolean;
+  channelId?: string;
+  error?: string;
+}
 
 export default function LandingPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [channelId, setChannelId] = useState("");
-  
 
-  const userId = localStorage.getItem('userId') || uuidv4();
-  localStorage.setItem('userId', userId);
+  const userId = localStorage.getItem("userId") || uuidv4();
+  localStorage.setItem("userId", userId);
 
   const navigate = useNavigate();
 
-  const handleCreateChannel = async () => {
+  const handleCreateChannel = () => {
     if (!password) {
       toast("Please enter a password to create a channel.");
       return;
     }
-  
-    try {
-      const response = await axios.post("/api/channel/create", { password, userId });
-      const { channelId } = response.data;
-      toast("Channel created successfully.");
-      navigate(`/channel/${channelId}`);
-    } catch (error) {
-      console.error("Error creating channel:", error);
-      toast("Failed to create channel. Please try again later.");
-    }
+
+    socket.emit("createChannel", { password, userId }, (response: ChannelActionResponse) => {
+      if (response.success) {
+        toast("Channel created successfully.");
+        navigate(`/channel/${response.channelId}`);
+        setIsCreateOpen(false);
+      } else {
+        toast(response.error || "Failed to create channel.");
+      }
+    });
   };
-  
-  const handleJoinChannel = async () => {
+
+  const handleJoinChannel = () => {
     if (!channelId || !password) {
       toast("Both Channel ID and Password are required.");
       return;
     }
-  
-    try {
-      await axios.post("/api/channel/join", { channelId, password });
-      toast("Successfully joined the channel.");
-      navigate(`/channel/${channelId}`);
-    } catch (error) {
-      console.error("Error joining channel:", error);
-      toast("Invalid Channel ID or Password.");
-    }
+
+    socket.emit("joinChannel", { channelId, password }, (response: ChannelActionResponse) => {
+      if (response.success) {
+        toast("Successfully joined the channel.");
+        navigate(`/channel/${channelId}`);
+        setIsJoinOpen(false);
+      } else {
+        toast(response.error || "Invalid Channel ID or Password.");
+      }
+    });
   };
 
   return (
