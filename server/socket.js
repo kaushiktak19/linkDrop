@@ -119,9 +119,35 @@ function initializeSocket(server) {
       }
     });
 
-    socket.on("disconnect", () => {
-      console.log(`🔴 Client disconnected: ${socket.id}`);
+    // --- WebRTC Signaling Events ---
+
+    socket.on("send-offer", ({ channelId, offer }) => {
+      socket.to(channelId).emit("receive-offer", { offer, senderId: socket.id });
+      console.log(`📤 Offer sent to channel ${channelId} from ${socket.id}`);
     });
+
+    socket.on("send-answer", ({ channelId, answer, receiverId }) => {
+      io.to(receiverId).emit("receive-answer", { answer, senderId: socket.id });
+      console.log(`📥 Answer sent to ${receiverId} from ${socket.id}`);
+    });
+
+    socket.on("send-ice-candidate", ({ channelId, candidate, receiverId }) => {
+      if (receiverId) {
+        io.to(receiverId).emit("receive-ice-candidate", { candidate, senderId: socket.id });
+      } else {
+        socket.to(channelId).emit("receive-ice-candidate", { candidate, senderId: socket.id });
+      }
+      console.log(`❄️ ICE candidate sent from ${socket.id} to ${receiverId || channelId}`);
+    });
+
+    socket.on("disconnect", () => {
+      console.log(`🔴 Client disconnected: ${socket.id}`);      const rooms = Array.from(socket.rooms).filter(room => room !== socket.id);
+      rooms.forEach(channelId => {
+        io.to(channelId).emit("peer-disconnected", { peerId: socket.id });
+      });
+    });
+
+    // --- End WebRTC Signaling Events ---
   });
 
   return io;
