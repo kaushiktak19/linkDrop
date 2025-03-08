@@ -1,103 +1,135 @@
 # LinkDrop - Secure P2P File Sharing
 
-**LinkDrop** is a lightweight, secure, peer-to-peer (P2P) file-sharing system built with modern web technologies. It allows two users to share files directly between their browsers without relying on centralized cloud storage, ensuring privacy and simplicity. No registration is required—just create or join a channel and start sharing.
+**LinkDrop** is a lightweight, secure, peer-to-peer (P2P) file-sharing system built with modern web technologies. It enables two users to share files directly between their browsers without centralized cloud storage, prioritizing privacy and simplicity. No registration is needed—just create or join a channel and start sharing.
 
 ## Current Status
-As of now, LinkDrop provides a fully functional channel management system with a clean UI and real-time updates. The foundation for P2P file sharing via WebRTC is in place, but the actual file transfer implementation is still pending.
+LinkDrop is now fully functional! The channel management system is complete, and P2P file sharing via WebRTC is implemented, allowing seamless, secure file transfers between two users. From small PDFs to large videos, files are shared accurately with real-time UI updates.
 
 ---
 
-## Features (Implemented)
-- **Channel Creation**: Users can create secure channels with a unique ID and password.
-- **Channel Joining**: Others can join a channel using the ID and password, limited to 2 members.
+## Features
+- **Channel Creation**: Create secure channels with a unique ID and password.
+- **Channel Joining**: Join a channel using the ID and password (max 2 members).
 - **Real-Time Updates**: Member counts and channel status sync instantly via Socket.IO.
-- **File Queuing**: Users can drop up to 3 files into a queue, ready for transfer.
-- **Secure Backend**: Passwords are hashed with bcrypt, and channel data is stored in Redis.
+- **File Sharing**: Drop up to 3 files into a queue and send them securely via WebRTC.
+  - Files transfer as chunks with progress tracking.
+  - Receiver auto-downloads the file with correct format and size.
+- **Secure Backend**: Passwords hashed with bcrypt, channel data stored in Redis.
 - **Graceful UX**: Leave or terminate channels with real-time feedback and toast notifications.
 
 ## Tech Stack
 - **Backend**: Node.js, Express, Socket.IO, Redis, bcrypt
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS (via shadcn/ui), react-dropzone
-- **Planned**: WebRTC for P2P file sharing
+- **P2P**: WebRTC (RTCPeerConnection, RTCDataChannel) with STUN servers
 
 ---
 
-## How It Works (Current Implementation)
+## How It Works
 
 ### Backend
-- **Server Setup**: An Express server with Socket.IO runs on port 5000 (configurable via `.env`), handling real-time communication.
+- **Server Setup**: Express with Socket.IO runs on port 5000 (configurable via `.env`), managing real-time communication.
 - **Channel Management**:
-  - Channels are stored in Redis with a unique `channelId`, hashed password, member count, and creator info.
-  - Socket.IO rooms tie users to channels for real-time updates.
+  - Channels stored in Redis with `channelId`, hashed password, member count, and creator info.
+  - Socket.IO rooms tie users to channels for updates.
 - **Events**:
   - `createChannel`: Generates a `channelId` and adds the creator.
-  - `joinChannel`: Validates password and joins if space exists (max 2 members).
+  - `joinChannel`: Validates password and joins if space exists (max 2).
   - `getChannel`: Fetches channel details.
-  - `leaveChannel`/`terminateChannel`: Updates or deletes channels, notifying all members.
+  - `leaveChannel`/`terminateChannel`: Updates or deletes channels, notifying members.
+  - **WebRTC Signaling**: `send-offer`, `send-answer`, `send-ice-candidate` exchange WebRTC metadata.
 
 ### Frontend
-- **Routing**: 
+- **Routing**:
   - `/` (LandingPage): Create or join channels.
   - `/channel/:channelId` (ChannelPage): File-sharing interface.
-- **Socket.IO**: Connects on app mount, listens for channel updates (e.g., member changes, deletions).
+- **Socket.IO**: Connects on app mount, handles channel updates and WebRTC signaling.
+- **WebRTC**: 
+  - `RTCPeerConnection` establishes P2P links when `members === 2`.
+  - `RTCDataChannel` transfers file chunks securely.
 - **UI**:
   - **LandingPage**: Modals for creating/joining channels with password input.
-  - **ChannelPage**: Displays `channelId`, member count, and a dropzone for queuing files (max 3).
+  - **ChannelPage**: Shows `channelId`, member count, and a dropzone for queuing and sending files.
 
 ---
 
 ## Current Flow
-1. **User A Creates a Channel**:
-   - Enters a password → Socket.IO emits `createChannel` → Backend generates `channelId` → User A joins and navigates to `/channel/:channelId`.
-2. **User B Joins**:
-   - Inputs `channelId` and password → Socket.IO emits `joinChannel` → Backend validates → User B joins if correct and room isn’t full (2/2).
-3. **Real-Time Sync**:
-   - Both users see member count (e.g., 1/2 → 2/2) via `channelUpdated` events.
-4. **File Queuing**:
-   - When members reach 2, the dropzone activates → Users drag/drop files → Files queue up (name, size, status shown).
-5. **Leave/Terminate**:
-   - User leaves → `leaveChannel` updates member count or deactivates channel if empty.
-   - Creator terminates → `terminateChannel` deletes the channel, kicking everyone out.
-
-**What’s Happening**: Users can create/join channels and queue files, but no files are transferred yet—WebRTC is the missing piece.
-
----
-
-## What’s Next?
-The next step is integrating **WebRTC** for P2P file sharing. Here’s the plan:
-
-1. **WebRTC Setup**:
-   - Add `RTCPeerConnection` and `RTCDataChannel` in `ChannelPage.tsx` to connect peers when `members === 2`.
-2. **Signaling**:
-   - Extend Socket.IO (`socket.js`) with events: `send-offer`, `send-answer`, `send-ice-candidate` to exchange WebRTC metadata.
-3. **File Transfer**:
-   - Send queued files via `RTCDataChannel` in chunks, updating `progress` in the UI.
-   - Receiver reassembles and offers a download link.
-4. **Enhancements**:
-   - Progress bars for transfers.
-   - Error handling for WebRTC failures (e.g., network issues).
-   - STUN/TURN server config for NAT traversal.
-
----
-
-## Flow After Completion
-Once WebRTC is implemented, here’s how LinkDrop will work:
-
 1. **Channel Setup**:
-   - User A creates a channel → Gets `channelId` and shares it.
-   - User B joins with `channelId` and password → Both are in the channel (2/2).
+   - User A creates a channel with a password → Gets `channelId` → Navigates to `/channel/:channelId`.
+   - User B joins with `channelId` and password → Both see `2/2` members.
 
 2. **WebRTC Handshake**:
-   - When `members === 2`, frontend initiates `RTCPeerConnection`.
-   - User A sends an SDP offer via Socket.IO → User B responds with an answer → ICE candidates exchange → P2P link established.
+   - When `members === 2`, the joiner sends an SDP offer via Socket.IO.
+   - Creator responds with an answer → ICE candidates exchange → P2P connection established.
 
 3. **File Sharing**:
-   - User A drops a file → Queued → `RTCDataChannel` sends chunks to User B.
-   - User B sees progress → File completes → Downloads it.
-   - Both can send files bidirectionally.
+   - User A drops a file (e.g., `video.mp4`) → Queued with "Send" button.
+   - Clicks "Send" → File splits into 16KB chunks → Sent via `RTCDataChannel` with indices.
+   - User B sees the file in the queue as "Sent/Received" → Auto-downloads when complete.
+   - Both users can send files bidirectionally.
 
 4. **Channel Exit**:
-   - User leaves → WebRTC connection closes → Member count updates.
-   - Creator terminates → Channel deletes, ending all connections.
+   - User leaves → `leaveChannel` updates count or deactivates if empty → WebRTC closes.
+   - Creator terminates → `terminateChannel` deletes the channel, ending all connections.
 
-**End Result**: A seamless, secure P2P file-sharing experience where files transfer directly between browsers, with no server storage.
+---
+
+## Development Journey
+
+### 1. Initial Approach and Issues Faced
+
+#### Initial Approach
+In the initial implementation of file sharing for `linkDrop`, we used WebRTC data channels with the following method:
+- Files were split into 16KB chunks using `File.slice()` and read as `ArrayBuffer` with `FileReader`.
+- Each chunk was wrapped in a JSON object (e.g., `{ type: "chunk", fileId, data: chunkData }`) and sent via `dataChannel.send(JSON.stringify(...))`.
+- Metadata (file name, total chunks) was sent as a separate JSON message beforehand.
+- The receiver parsed these JSON messages, extracted the chunk data, and reassembled them into a `Blob` for download.
+
+#### Issues Faced
+Despite chunking, we encountered persistent problems:
+- **File Corruption**: Received files, especially videos and PDFs, were corrupted or unopenable, even if all chunks seemed to arrive.
+- **Size Reduction**: Large files often ended up smaller than the original (e.g., a 5MB video became 4.8MB), indicating data loss.
+- **Inconsistent Results**: Some files worked occasionally, but most complex formats (e.g., MP4) failed consistently.
+
+#### Why These Issues Occurred
+- **JSON Serialization of Binary Data**: Wrapping binary `ArrayBuffer` chunks in JSON and stringifying them corrupted the data, as JSON isn’t designed for raw binary content. This led to encoding/decoding mismatches.
+- **Lack of Precise Ordering**: Although WebRTC ensures ordered delivery, relying on JSON parsing without explicit chunk indices risked misordering or missing data during reassembly.
+- **No Buffer Control**: Sending chunks without checking the data channel’s buffer capacity caused potential overflows, dropping data silently.
+
+---
+
+### 2. New Approach: Inspiration and Improvements
+
+#### Inspiration
+We drew inspiration from **Snapdrop**, a WebRTC-based file sharing tool. Snapdrop sends file chunks as raw `ArrayBuffer` data directly through the data channel, avoiding JSON for binary content. It uses separate metadata for file details and ensures reliable transfers by managing chunk delivery, which influenced our redesign.
+
+#### New Approach
+We revamped the file sharing mechanism as follows:
+- **Raw Binary Chunks**: Chunks are sent as raw `ArrayBuffer` with a 4-byte index prefix (e.g., `view.setUint32(0, chunkIndex)`), avoiding JSON for the binary data itself.
+- **Metadata as JSON**: A single JSON message with file details (name, size, type, total chunks) is sent first to prepare the receiver.
+- **Buffer Management**: Before sending each chunk, we check `dataChannel.bufferedAmount` and pause if it exceeds a threshold (e.g., `CHUNK_SIZE * 2`), ensuring no data is lost.
+- **Ordered Reassembly**: The receiver extracts the chunk index, stores chunks in a pre-allocated array by index, and builds a `Blob` with the correct MIME type (e.g., `video/mp4`) once all chunks arrive.
+
+#### How This Approach Was Better
+- **Preserved Binary Integrity**: Sending raw `ArrayBuffer` chunks instead of JSON-stringified data eliminated encoding corruption, ensuring files stayed intact.
+- **Guaranteed Order**: Embedding chunk indices in the binary data provided explicit ordering, preventing reassembly errors.
+- **Reliable Large File Transfers**: Buffer management avoided overflows, ensuring all chunks of large files (e.g., videos) were delivered.
+- **Correct File Typing**: Using the file’s MIME type in the `Blob` constructor ensured proper handling by browsers (e.g., playable videos).
+
+#### How It Helped
+- **Eliminated Corruption**: Files like PDFs and videos now transfer accurately and open without issues, matching their original content.
+- **Fixed Size Reduction**: The received file size matches the original (e.g., a 5MB video stays 5MB), thanks to buffer control and complete chunk delivery.
+- **Enhanced Reliability**: Inspired by Snapdrop’s raw binary approach, this method scaled to handle any file type or size, improving user trust and experience.
+
+---
+
+This shift from JSON-wrapped chunks to raw binary transmission with buffer management and explicit ordering resolved the initial issues, making `linkDrop`’s file sharing robust and dependable.
+
+---
+
+## Final Flow
+1. **Channel Setup**: User A creates, User B joins → `2/2` members.
+2. **P2P Connection**: WebRTC links peers via Socket.IO signaling.
+3. **File Sharing**: Drop files → Send chunks → Receive and download with correct format.
+4. **Exit**: Leave or terminate → Connection closes cleanly.
+
+**End Result**: A secure, private P2P file-sharing app where files flow directly between browsers, no server storage needed—perfect for quick, safe transfers.

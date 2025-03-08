@@ -33,8 +33,11 @@ export default function ChannelPage() {
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
-  const receivedChunks = useRef<{ [fileId: string]: { chunks: ArrayBuffer[]; total: number; name: string } }>({});
+  const receivedChunks = useRef<{
+    [fileId: string]: { chunks: ArrayBuffer[]; total: number; name: string; size: number; type: string };
+  }>({});
 
+  // Original channel logic (unchanged)
   useEffect(() => {
     if (!channelId) return;
 
@@ -79,6 +82,7 @@ export default function ChannelPage() {
     };
   }, [channelId, navigate]);
 
+  // WebRTC connection setup
   useEffect(() => {
     if (!channelId || members !== 2) return;
 
@@ -189,38 +193,58 @@ export default function ChannelPage() {
       toast("Disconnected from peer.");
     };
     dc.onmessage = (event) => {
-      console.log("Received data on channel:", event.data);
-      const message = JSON.parse(event.data);
-      if (message.type === "metadata") {
-        receivedChunks.current[message.fileId] = {
-          chunks: [],
-          total: message.totalChunks,
-          name: message.fileName,
-        };
-      } else if (message.type === "chunk") {
-        const fileData = receivedChunks.current[message.fileId];
-        fileData.chunks.push(message.data);
-        if (fileData.chunks.length === fileData.total) {
-          const blob = new Blob(fileData.chunks);
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = fileData.name;
-          a.click();
-          URL.revokeObjectURL(url);
-          toast("File received and downloaded!");
-          setFiles((prev) => [
-            ...prev,
-            {
-              id: Math.random().toString(36).substr(2, 9),
-              name: fileData.name,
-              size: blob.size,
-              progress: 100,
-              status: "completed",
-              file: new File([blob], fileData.name),
-            },
-          ]);
-          delete receivedChunks.current[message.fileId];
+      const data = event.data;
+      if (typeof data === "string") {
+        const message = JSON.parse(data);
+        if (message.type === "metadata") {
+          receivedChunks.current[message.fileId] = {
+            chunks: new Array(message.totalChunks).fill(null), // Pre-allocate for ordering
+            total: message.totalChunks,
+            name: message.fileName,
+            size: message.fileSize,
+            type: message.fileType,
+          };
+          console.log("Received metadata:", message);
+        }
+      } else if (data instanceof ArrayBuffer) {
+        const view = new DataView(data);
+        const chunkIndex = view.getUint32(0); // First 4 bytes are index
+        const chunkData = data.slice(4); // Rest is the actual data
+        const fileIds = Object.keys(receivedChunks.current);
+        if (fileIds.length === 0) return; // No metadata yet
+        const fileId = fileIds[fileIds.length - 1]; // Latest file
+        const fileData = receivedChunks.current[fileId];
+        fileData.chunks[chunkIndex] = chunkData;
+        console.log(`Received chunk ${chunkIndex + 1} of ${fileData.total}, size: ${chunkData.byteLength}`);
+
+        // Check if all chunks are received
+        const receivedCount = fileData.chunks.filter((chunk) => chunk !== null).length;
+        if (receivedCount === fileData.total) {
+          const blob = new Blob(fileData.chunks, { type: fileData.type });
+          console.log(`Reassembled file size: ${blob.size}, expected: ${fileData.size}`);
+          if (blob.size === fileData.size) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = fileData.name;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast("File received and downloaded successfully!");
+            setFiles((prev) => [
+              ...prev,
+              {
+                id: Math.random().toString(36).substr(2, 9),
+                name: fileData.name,
+                size: blob.size,
+                progress: 100,
+                status: "completed",
+                file: new File([blob], fileData.name, { type: fileData.type }),
+              },
+            ]);
+          } else {
+            toast("Received file is corrupted (size mismatch).");
+          }
+          delete receivedChunks.current[fileId];
         }
       }
     };
@@ -261,35 +285,45 @@ export default function ChannelPage() {
       const fileId = Math.random().toString(36).substr(2, 9);
       const totalChunks = Math.ceil(fileToSend.size / CHUNK_SIZE);
 
-      // Send metadata first
+      // Send metadata as JSON
       const metadata = {
         type: "metadata",
         fileId,
         fileName: fileToSend.name,
         totalChunks,
+        fileSize: fileToSend.size,
+        fileType: fileToSend.file.type, // Preserve MIME type
       };
       dataChannelRef.current.send(JSON.stringify(metadata));
       console.log("Sent metadata:", metadata);
 
       let offset = 0;
+      let chunkIndex = 0;
+
       const sendNextChunk = () => {
         if (offset < fileToSend.size) {
+          // Buffer management: Wait if buffer is full
+          if (dataChannelRef.current!.bufferedAmount > CHUNK_SIZE * 2) {
+            setTimeout(sendNextChunk, 100); // Wait 100ms
+            return;
+          }
+
           const chunk = fileToSend.file.slice(offset, offset + CHUNK_SIZE);
           fileReader.onload = () => {
             const chunkData = fileReader.result as ArrayBuffer;
-            dataChannelRef.current!.send(
-              JSON.stringify({
-                type: "chunk",
-                fileId,
-                data: chunkData,
-              })
-            );
-            console.log(`Sent chunk ${offset / CHUNK_SIZE + 1} of ${totalChunks}`);
+            // Combine index (4 bytes) with chunk data
+            const combinedBuffer = new ArrayBuffer(4 + chunkData.byteLength);
+            const view = new DataView(combinedBuffer);
+            view.setUint32(0, chunkIndex); // Set chunk index
+            new Uint8Array(combinedBuffer).set(new Uint8Array(chunkData), 4); // Append chunk data
+            dataChannelRef.current!.send(combinedBuffer);
+            console.log(`Sent chunk ${chunkIndex + 1} of ${totalChunks}, size: ${chunkData.byteLength}`);
             offset += CHUNK_SIZE;
+            chunkIndex++;
             sendNextChunk();
           };
           fileReader.onerror = () => {
-            console.error("Error reading chunk:", offset);
+            console.error("Error reading chunk at offset:", offset);
             toast("Error reading file chunk.");
             setFiles((prev) =>
               prev.map((f) => (f.id === id ? { ...f, status: "cancelled" } : f))
