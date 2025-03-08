@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress"; // shadcn/ui Progress component
+import { Progress } from "@/components/ui/progress";
 import { Copy, Users, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import socket from "@/lib/socket";
@@ -39,6 +39,7 @@ export default function ChannelPage() {
   const receivedChunks = useRef<{
     [fileId: string]: { chunks: ArrayBuffer[]; total: number; name: string; size: number; type: string };
   }>({});
+  const abortTransferRef = useRef<{ [fileId: string]: boolean }>({}); // Track cancellation
 
   useEffect(() => {
     if (!channelId) return;
@@ -217,6 +218,12 @@ export default function ChannelPage() {
             },
           ]);
           console.log("Received metadata:", message);
+        } else if (message.type === "cancel") {
+          // Handle cancellation message from sender
+          const fileId = message.fileId;
+          setFiles((prev) => prev.filter((f) => f.id !== fileId));
+          delete receivedChunks.current[fileId];
+          console.log(`File ${fileId} cancelled by sender and removed from receiver queue`);
         }
       } else if (data instanceof ArrayBuffer) {
         const view = new DataView(data);
@@ -313,8 +320,21 @@ export default function ChannelPage() {
 
       let offset = 0;
       let chunkIndex = 0;
+      abortTransferRef.current[fileId] = false;
 
       const sendNextChunk = () => {
+        if (abortTransferRef.current[fileId]) {
+          console.log(`Transfer aborted for file ${fileId}`);
+          const cancelMessage = {
+            type: "cancel",
+            fileId,
+          };
+          dataChannelRef.current!.send(JSON.stringify(cancelMessage));
+          console.log("Sent cancel message:", cancelMessage);
+          setIsTransferring(false);
+          return;
+        }
+
         if (offset < fileToSend.size) {
           if (dataChannelRef.current!.bufferedAmount > CHUNK_SIZE * 2) {
             setTimeout(sendNextChunk, 100);
@@ -367,10 +387,12 @@ export default function ChannelPage() {
   };
 
   const cancelFile = (id: string) => {
-    setFiles((prev) => prev.filter((file) => file.id !== id));
-    if (files.find((f) => f.id === id)?.status === "transferring") {
-      setIsTransferring(false);
+    const file = files.find((f) => f.id === id);
+    if (file?.status === "transferring") {
+      abortTransferRef.current[id] = true; // Signal to stop transfer
     }
+    setFiles((prev) => prev.filter((file) => file.id !== id));
+    setIsTransferring(false); // Reset transferring state immediately
   };
 
   const handleLeave = () => {
@@ -387,6 +409,12 @@ export default function ChannelPage() {
 
   const copyChannelId = () => {
     navigator.clipboard.writeText(channelId || "");
+  };
+
+  const formatFileSize = (size: number) => {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
@@ -452,7 +480,10 @@ export default function ChannelPage() {
               <div key={file.id} className="p-4 flex items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-medium truncate">{file.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{file.name}</p>
+                      <span className="text-sm text-gray-500">({formatFileSize(file.size)})</span>
+                    </div>
                     <div className="flex items-center gap-2">
                       {file.status === "queued" && (
                         <Button
@@ -486,7 +517,10 @@ export default function ChannelPage() {
                     </div>
                   </div>
                   {(file.status === "transferring" || file.status === "sent" || file.status === "received") && (
-                    <Progress value={file.progress} className="w-full" />
+                    <div className="flex items-center gap-2">
+                      <Progress value={file.progress} className="w-full" />
+                      <span className="text-sm text-gray-500">{file.progress}%</span>
+                    </div>
                   )}
                 </div>
               </div>
