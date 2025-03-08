@@ -1,18 +1,14 @@
-// server/config/redis.js
 const Redis = require("ioredis");
+require("dotenv").config(); // Load environment variables
 
-const redis = new Redis({
-  host: process.env.REDIS_HOST || "127.0.0.1",
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD || undefined,
-});
+const redis = new Redis(process.env.REDIS_URL);
 
 redis.on("connect", () => {
-  console.log("Connected to Redis");
+  console.log("Connected to Upstash Redis");
 });
 
 redis.on("error", (err) => {
-  console.error("Redis connection error:", err);
+  console.error("Upstash Redis connection error:", err);
 });
 
 module.exports = redis;
