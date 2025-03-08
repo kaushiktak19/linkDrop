@@ -219,7 +219,6 @@ export default function ChannelPage() {
           ]);
           console.log("Received metadata:", message);
         } else if (message.type === "cancel") {
-          // Handle cancellation message from sender
           const fileId = message.fileId;
           setFiles((prev) => prev.filter((f) => f.id !== fileId));
           delete receivedChunks.current[fileId];
@@ -302,7 +301,7 @@ export default function ChannelPage() {
       setFiles((prev) =>
         prev.map((f) => (f.id === id ? { ...f, status: "transferring" } : f))
       );
-      const CHUNK_SIZE = 16384;
+      const CHUNK_SIZE = 65536; // 64KB as a practical maximum
       const fileReader = new FileReader();
       const fileId = fileToSend.id;
       const totalChunks = Math.ceil(fileToSend.size / CHUNK_SIZE);
@@ -336,8 +335,11 @@ export default function ChannelPage() {
         }
 
         if (offset < fileToSend.size) {
-          if (dataChannelRef.current!.bufferedAmount > CHUNK_SIZE * 2) {
-            setTimeout(sendNextChunk, 100);
+          const bufferedAmount = dataChannelRef.current!.bufferedAmount;
+          if (bufferedAmount > CHUNK_SIZE * 4) { // Enhanced buffer threshold
+            const waitTime = bufferedAmount > CHUNK_SIZE * 8 ? 200 : 50; // Dynamic wait time
+            console.log(`Buffer full (${bufferedAmount} bytes), waiting ${waitTime}ms`);
+            setTimeout(sendNextChunk, waitTime);
             return;
           }
 
