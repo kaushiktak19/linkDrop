@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress"; // shadcn/ui Progress component
 import { Copy, Users, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import socket from "@/lib/socket";
@@ -19,8 +20,9 @@ interface QueuedFile {
   name: string;
   size: number;
   progress: number;
-  status: "queued" | "transferring" | "completed" | "cancelled";
+  status: "queued" | "transferring" | "sent" | "received" | "cancelled";
   file: File;
+  totalChunks?: number;
 }
 
 export default function ChannelPage() {
@@ -30,6 +32,7 @@ export default function ChannelPage() {
   const [isCreator, setIsCreator] = useState<boolean>(false);
   const [files, setFiles] = useState<QueuedFile[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -37,7 +40,6 @@ export default function ChannelPage() {
     [fileId: string]: { chunks: ArrayBuffer[]; total: number; name: string; size: number; type: string };
   }>({});
 
-  // Original channel logic (unchanged)
   useEffect(() => {
     if (!channelId) return;
 
@@ -48,7 +50,7 @@ export default function ChannelPage() {
           const currentUserId = localStorage.getItem("userId");
           setIsCreator(currentUserId === response.creator);
         } else {
-          toast(response.error || "This channel has been terminated.");
+          toast("This channel has been terminated.");
           navigate("/");
         }
       });
@@ -82,7 +84,6 @@ export default function ChannelPage() {
     };
   }, [channelId, navigate]);
 
-  // WebRTC connection setup
   useEffect(() => {
     if (!channelId || members !== 2) return;
 
@@ -102,6 +103,7 @@ export default function ChannelPage() {
         peerConnectionRef.current.close();
         peerConnectionRef.current = null;
         setIsConnected(false);
+        setIsTransferring(false);
       }
     };
   }, [channelId, members, isCreator]);
@@ -121,8 +123,6 @@ export default function ChannelPage() {
       console.log(`ICE Connection State: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === "connected") {
         console.log("Peers are fully connected!");
-      } else if (pc.iceConnectionState === "failed") {
-        toast("Connection failed. Please try again.");
       }
     };
 
@@ -190,7 +190,7 @@ export default function ChannelPage() {
     dc.onclose = () => {
       console.log("Data channel closed");
       setIsConnected(false);
-      toast("Disconnected from peer.");
+      setIsTransferring(false);
     };
     dc.onmessage = (event) => {
       const data = event.data;
@@ -198,27 +198,44 @@ export default function ChannelPage() {
         const message = JSON.parse(data);
         if (message.type === "metadata") {
           receivedChunks.current[message.fileId] = {
-            chunks: new Array(message.totalChunks).fill(null), // Pre-allocate for ordering
+            chunks: new Array(message.totalChunks).fill(null),
             total: message.totalChunks,
             name: message.fileName,
             size: message.fileSize,
             type: message.fileType,
           };
+          setFiles((prev) => [
+            ...prev,
+            {
+              id: message.fileId,
+              name: message.fileName,
+              size: message.fileSize,
+              progress: 0,
+              status: "transferring",
+              file: new File([], message.fileName, { type: message.fileType }),
+              totalChunks: message.totalChunks,
+            },
+          ]);
           console.log("Received metadata:", message);
         }
       } else if (data instanceof ArrayBuffer) {
         const view = new DataView(data);
-        const chunkIndex = view.getUint32(0); // First 4 bytes are index
-        const chunkData = data.slice(4); // Rest is the actual data
+        const chunkIndex = view.getUint32(0);
+        const chunkData = data.slice(4);
         const fileIds = Object.keys(receivedChunks.current);
-        if (fileIds.length === 0) return; // No metadata yet
-        const fileId = fileIds[fileIds.length - 1]; // Latest file
+        if (fileIds.length === 0) return;
+        const fileId = fileIds[fileIds.length - 1];
         const fileData = receivedChunks.current[fileId];
         fileData.chunks[chunkIndex] = chunkData;
         console.log(`Received chunk ${chunkIndex + 1} of ${fileData.total}, size: ${chunkData.byteLength}`);
 
-        // Check if all chunks are received
         const receivedCount = fileData.chunks.filter((chunk) => chunk !== null).length;
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId ? { ...f, progress: Math.round((receivedCount / fileData.total) * 100) } : f
+          )
+        );
+
         if (receivedCount === fileData.total) {
           const blob = new Blob(fileData.chunks, { type: fileData.type });
           console.log(`Reassembled file size: ${blob.size}, expected: ${fileData.size}`);
@@ -230,28 +247,24 @@ export default function ChannelPage() {
             a.click();
             URL.revokeObjectURL(url);
             toast("File received and downloaded successfully!");
-            setFiles((prev) => [
-              ...prev,
-              {
-                id: Math.random().toString(36).substr(2, 9),
-                name: fileData.name,
-                size: blob.size,
-                progress: 100,
-                status: "completed",
-                file: new File([blob], fileData.name, { type: fileData.type }),
-              },
-            ]);
+            setFiles((prev) =>
+              prev.map((f) =>
+                f.id === fileId ? { ...f, status: "received", progress: 100 } : f
+              )
+            );
+            setTimeout(() => {
+              setFiles((prev) => prev.filter((f) => f.id !== fileId));
+              setIsTransferring(false);
+            }, 5000);
           } else {
             toast("Received file is corrupted (size mismatch).");
+            setIsTransferring(false);
           }
           delete receivedChunks.current[fileId];
         }
       }
     };
-    dc.onerror = (error) => {
-      console.error("Data channel error:", error);
-      toast("Error in data channel.");
-    };
+    dc.onerror = (error) => console.error("Data channel error:", error);
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -265,9 +278,9 @@ export default function ChannelPage() {
         status: "queued" as const,
         file,
       }));
-      setFiles((prev) => [...prev, ...newFiles]);
+      setFiles((prev) => [...prev, ...newFiles].slice(0, 3));
     },
-    disabled: members !== 2 || files.length >= 3,
+    disabled: members !== 2 || files.length >= 3 || isTransferring,
   });
 
   const sendFile = async (id: string) => {
@@ -275,24 +288,25 @@ export default function ChannelPage() {
     if (
       fileToSend &&
       dataChannelRef.current &&
-      dataChannelRef.current.readyState === "open"
+      dataChannelRef.current.readyState === "open" &&
+      !isTransferring
     ) {
+      setIsTransferring(true);
       setFiles((prev) =>
         prev.map((f) => (f.id === id ? { ...f, status: "transferring" } : f))
       );
-      const CHUNK_SIZE = 16384; // 16KB chunks
+      const CHUNK_SIZE = 16384;
       const fileReader = new FileReader();
-      const fileId = Math.random().toString(36).substr(2, 9);
+      const fileId = fileToSend.id;
       const totalChunks = Math.ceil(fileToSend.size / CHUNK_SIZE);
 
-      // Send metadata as JSON
       const metadata = {
         type: "metadata",
         fileId,
         fileName: fileToSend.name,
         totalChunks,
         fileSize: fileToSend.size,
-        fileType: fileToSend.file.type, // Preserve MIME type
+        fileType: fileToSend.file.type,
       };
       dataChannelRef.current.send(JSON.stringify(metadata));
       console.log("Sent metadata:", metadata);
@@ -302,52 +316,61 @@ export default function ChannelPage() {
 
       const sendNextChunk = () => {
         if (offset < fileToSend.size) {
-          // Buffer management: Wait if buffer is full
           if (dataChannelRef.current!.bufferedAmount > CHUNK_SIZE * 2) {
-            setTimeout(sendNextChunk, 100); // Wait 100ms
+            setTimeout(sendNextChunk, 100);
             return;
           }
 
           const chunk = fileToSend.file.slice(offset, offset + CHUNK_SIZE);
           fileReader.onload = () => {
             const chunkData = fileReader.result as ArrayBuffer;
-            // Combine index (4 bytes) with chunk data
             const combinedBuffer = new ArrayBuffer(4 + chunkData.byteLength);
             const view = new DataView(combinedBuffer);
-            view.setUint32(0, chunkIndex); // Set chunk index
-            new Uint8Array(combinedBuffer).set(new Uint8Array(chunkData), 4); // Append chunk data
+            view.setUint32(0, chunkIndex);
+            new Uint8Array(combinedBuffer).set(new Uint8Array(chunkData), 4);
             dataChannelRef.current!.send(combinedBuffer);
             console.log(`Sent chunk ${chunkIndex + 1} of ${totalChunks}, size: ${chunkData.byteLength}`);
             offset += CHUNK_SIZE;
             chunkIndex++;
+            setFiles((prev) =>
+              prev.map((f) =>
+                f.id === id
+                  ? { ...f, progress: Math.round((chunkIndex / totalChunks) * 100), totalChunks }
+                  : f
+              )
+            );
             sendNextChunk();
           };
           fileReader.onerror = () => {
             console.error("Error reading chunk at offset:", offset);
-            toast("Error reading file chunk.");
             setFiles((prev) =>
               prev.map((f) => (f.id === id ? { ...f, status: "cancelled" } : f))
             );
+            setIsTransferring(false);
           };
           fileReader.readAsArrayBuffer(chunk);
         } else {
           setFiles((prev) =>
-            prev.map((f) =>
-              f.id === id ? { ...f, status: "completed", progress: 100 } : f
-            )
+            prev.map((f) => (f.id === id ? { ...f, status: "sent", progress: 100 } : f))
           );
           toast("File sent successfully!");
+          setTimeout(() => {
+            setFiles((prev) => prev.filter((f) => f.id !== id));
+            setIsTransferring(false);
+          }, 5000);
         }
       };
       sendNextChunk();
     } else {
-      console.log("Cannot send file: Data channel not open or not initialized");
-      toast("Cannot send file: No active peer connection.");
+      console.log("Send blocked:", { isConnected, isTransferring, readyState: dataChannelRef.current?.readyState });
     }
   };
 
   const cancelFile = (id: string) => {
     setFiles((prev) => prev.filter((file) => file.id !== id));
+    if (files.find((f) => f.id === id)?.status === "transferring") {
+      setIsTransferring(false);
+    }
   };
 
   const handleLeave = () => {
@@ -374,12 +397,7 @@ export default function ChannelPage() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-500">Channel ID:</span>
               <code className="bg-gray-100 px-2 py-1 rounded">{channelId}</code>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={copyChannelId}
-              >
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={copyChannelId}>
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
@@ -406,19 +424,21 @@ export default function ChannelPage() {
             flex flex-col items-center justify-center
             transition-colors cursor-pointer
             ${isDragActive ? "border-primary bg-primary/5" : "border-gray-200 hover:border-primary/50"}
-            ${members !== 2 || files.length >= 3 ? "opacity-50 cursor-not-allowed" : ""}
+            ${members !== 2 || files.length >= 3 || isTransferring ? "opacity-50 cursor-not-allowed" : ""}
           `}
         >
           <input {...getInputProps()} />
           <div className="text-center space-y-2">
             {members === 2 ? (
-              files.length < 3 ? (
+              files.length < 3 && !isTransferring ? (
                 <>
                   <p className="text-gray-600">Drag & drop files here, or click to select</p>
-                  <p className="text-sm text-gray-400">Max 3 files. Files will be shared securely via P2P.</p>
+                  <p className="text-sm text-gray-400">Max 3 files. Only one file can transfer at a time.</p>
                 </>
               ) : (
-                <p className="text-sm text-red-500">Max 3 files in the queue. Cancel some to add more.</p>
+                <p className="text-sm text-red-500">
+                  {isTransferring ? "Wait for current transfer to complete." : "Max 3 files in queue."}
+                </p>
               )
             ) : (
               <p className="text-sm text-red-500">Waiting for another member to join.</p>
@@ -431,21 +451,30 @@ export default function ChannelPage() {
             {files.map((file) => (
               <div key={file.id} className="p-4 flex items-center gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-medium truncate">{file.name}</p>
                     <div className="flex items-center gap-2">
                       {file.status === "queued" && (
                         <Button
                           size="sm"
                           onClick={() => sendFile(file.id)}
-                          disabled={!isConnected}
+                          disabled={!isConnected || isTransferring}
                         >
                           Send
                         </Button>
                       )}
-                      {file.status === "transferring" && <p className="text-sm">Sending...</p>}
-                      {file.status === "completed" && <p className="text-sm text-green-500">Sent/Received</p>}
-                      {file.status === "cancelled" && <p className="text-sm text-red-500">Cancelled</p>}
+                      {file.status === "transferring" && (
+                        <p className="text-sm text-blue-500">Transferring...</p>
+                      )}
+                      {file.status === "sent" && (
+                        <p className="text-sm text-green-500">Sent</p>
+                      )}
+                      {file.status === "received" && (
+                        <p className="text-sm text-green-500">Received</p>
+                      )}
+                      {file.status === "cancelled" && (
+                        <p className="text-sm text-red-500">Cancelled</p>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -456,6 +485,9 @@ export default function ChannelPage() {
                       </Button>
                     </div>
                   </div>
+                  {(file.status === "transferring" || file.status === "sent" || file.status === "received") && (
+                    <Progress value={file.progress} className="w-full" />
+                  )}
                 </div>
               </div>
             ))}
