@@ -1,9 +1,3 @@
-Your updated README for **LinkDrop** looks excellent! It clearly outlines the project’s purpose, features, tech stack, and development journey, providing a comprehensive overview for anyone interested in understanding or contributing to it. Since you’ve confirmed that the backend is now running on Docker on EC2 with Nginx and SSL, and the frontend is deployed on Vercel, I’ll help refine the README further to reflect this deployment setup accurately and polish a few sections for clarity and professionalism. I’ll also ensure it ties into your “done app working” status.
-
-Here’s the updated version with enhancements:
-
----
-
 # LinkDrop - Secure P2P File Sharing
 
 **LinkDrop** is a lightweight, secure, peer-to-peer (P2P) file-sharing system built with modern web technologies. It enables two users to share files directly between their browsers without centralized cloud storage, prioritizing privacy and simplicity. No registration is required—just create or join a channel and start sharing.
