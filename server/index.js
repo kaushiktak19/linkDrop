@@ -11,20 +11,17 @@ const io = initializeSocket(server);
 app.use(cors());
 app.use(express.json());
 
-// Health Check
 app.get("/", (req, res) => {
   res.send("Server is running...");
 });
 
-// Start Server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
-// Graceful Shutdown
 process.on("SIGINT", () => {
-  console.log("🛑 Shutting down server...");
+  console.log("Shutting down server...");
   io.close(() => {
     console.log("Socket.IO closed.");
     server.close(() => {
